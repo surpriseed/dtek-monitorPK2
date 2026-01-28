@@ -12,7 +12,7 @@ export function capitalize(str) {
 
 /* ================== DATE ================== */
 
-function getToday() {
+export function getToday() {
   return new Date().toLocaleDateString("en-CA", {
     timeZone: "Europe/Kyiv",
   }) // YYYY-MM-DD
@@ -31,11 +31,7 @@ export function loadLastMessage() {
   }
 }
 
-export function saveLastMessage({
-  message_id,
-  isOutage,
-  publishedAt,
-} = {}) {
+export function saveLastMessage({ message_id, isOutage, publishedAt } = {}) {
   fs.mkdirSync(path.dirname(LAST_MESSAGE_FILE), { recursive: true })
 
   fs.writeFileSync(
