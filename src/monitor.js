@@ -26,11 +26,14 @@ const getRandomDelay = () => {
   return Math.floor(Math.random() * (max - min + 1)) + min
 }
 
+const getToday = () =>
+  new Date().toLocaleDateString("en-CA", {
+    timeZone: "Europe/Kyiv",
+  })
+
 /* ================== DATA ================== */
 
 async function getInfo() {
-  console.log("🌀 Getting info...")
-
   const browser = await chromium.launch({ headless: true })
   const page = await browser.newPage()
 
@@ -41,7 +44,7 @@ async function getInfo() {
       .locator('meta[name="csrf-token"]')
       .getAttribute("content")
 
-    const info = await page.evaluate(
+    return await page.evaluate(
       async ({ CITY, STREET, csrfToken }) => {
         const formData = new URLSearchParams()
         formData.append("method", "getHomeNum")
@@ -65,8 +68,6 @@ async function getInfo() {
       },
       { CITY, STREET, csrfToken }
     )
-
-    return info
   } finally {
     await browser.close()
   }
@@ -74,16 +75,12 @@ async function getInfo() {
 
 /* ================== CHECKS ================== */
 
-/**
- * НАДІЙНА перевірка відключення під реальну поведінку ДТЕК
- */
 function checkIsOutage(info) {
   const house = info?.data?.[HOUSE]
   if (!house) return false
 
   const sub = (house.sub_type || "").toLowerCase()
 
-  // ДТЕК вважає, що світло Є, але поля можуть бути заповнені
   if (
     sub === "" ||
     sub === "-" ||
@@ -98,12 +95,10 @@ function checkIsOutage(info) {
 
 function getOutageType(subType = "") {
   const r = subType.toLowerCase()
-
   if (r.includes("авар")) return "🔴🚨 Аварійне"
   if (r.includes("екст")) return "🔥🚨 Екстрене"
   if (r.includes("стабілізац") || r.includes("графік"))
     return "🟡🗓️ Стабілізаційне"
-
   return "⚡️"
 }
 
@@ -114,10 +109,8 @@ function generateOutageMessage(info) {
     info?.data?.[HOUSE] || {}
   const { updateTimestamp } = info || {}
 
-  const outageType = getOutageType(sub_type)
-
   return [
-    `⚡️ <b>Зафіксовано ${outageType} відключення</b>`,
+    `⚡️ <b>Зафіксовано ${getOutageType(sub_type)} відключення</b>`,
     "",
     `🪫 <b>Час початку:</b> <code>${start_date || "Невідомо"}</code>`,
     `🔌 <b>Орієнтовний час відновлення:</b> <code>${end_date || "Невідомо"}</code>`,
@@ -144,11 +137,17 @@ function generateRecoveryMessage(info) {
 
 async function sendNotification(message, isOutage) {
   const last = loadLastMessage() || {}
+  const today = getToday()
+
+  const shouldSendNew =
+    !last.message_id || last.publishedAt !== today
+
+  const method = shouldSendNew
+    ? "sendMessage"
+    : "editMessageText"
 
   const response = await fetch(
-    `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/${
-      last.message_id ? "editMessageText" : "sendMessage"
-    }`,
+    `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/${method}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -156,13 +155,12 @@ async function sendNotification(message, isOutage) {
         chat_id: TELEGRAM_CHAT_ID,
         text: message,
         parse_mode: "HTML",
-        message_id: last.message_id ?? undefined,
+        message_id: shouldSendNew ? undefined : last.message_id,
       }),
     }
   )
 
   const data = await response.json()
-
   if (!data.ok) {
     console.error("❌ Telegram error:", data)
     return
@@ -171,6 +169,7 @@ async function sendNotification(message, isOutage) {
   saveLastMessage({
     message_id: data.result.message_id,
     isOutage,
+    publishedAt: today,
   })
 }
 
@@ -183,22 +182,17 @@ async function run() {
   const last = loadLastMessage() || {}
   const wasOutage = last.isOutage ?? false
 
-  // 🔴 нове відключення або оновлення існуючого
   if (isOutage) {
     await sendNotification(generateOutageMessage(info), true)
     return
   }
 
-  // 🟢 підтверджене відновлення
   if (wasOutage && !isOutage) {
     const delay = getRandomDelay()
-    console.log(`⏳ Waiting ${delay / 60000} min to confirm recovery...`)
     await sleep(delay)
 
     const recheck = await getInfo()
-    const stillNoOutage = !checkIsOutage(recheck)
-
-    if (stillNoOutage) {
+    if (!checkIsOutage(recheck)) {
       await sendNotification(generateRecoveryMessage(recheck), false)
     }
   }
