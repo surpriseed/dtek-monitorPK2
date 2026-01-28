@@ -5,9 +5,18 @@ on:
     - cron: "*/10 * * * *"
   workflow_dispatch:
 
+# ❗ Захист від паралельних запусків
+concurrency:
+  group: power-outages-monitor
+  cancel-in-progress: true
+
 jobs:
   monitor:
     runs-on: ubuntu-latest
+
+    # ❗ Єдиний timezone для cron + Node.js
+    env:
+      TZ: Europe/Kyiv
 
     steps:
       - name: Checkout code
