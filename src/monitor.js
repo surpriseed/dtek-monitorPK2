@@ -14,6 +14,7 @@ import {
   getCurrentTime,
   loadLastMessage,
   saveLastMessage,
+  getToday,
 } from "./helpers.js"
 
 /* ================== UTILS ================== */
@@ -25,11 +26,6 @@ const getRandomDelay = () => {
   const max = 10 * 60 * 1000
   return Math.floor(Math.random() * (max - min + 1)) + min
 }
-
-const getToday = () =>
-  new Date().toLocaleDateString("en-CA", {
-    timeZone: "Europe/Kyiv",
-  })
 
 /* ================== DATA ================== */
 
@@ -139,12 +135,10 @@ async function sendNotification(message, isOutage) {
   const last = loadLastMessage() || {}
   const today = getToday()
 
-  const shouldSendNew =
-    !last.message_id || last.publishedAt !== today
+  // ✅ якщо сьогодні ще не було публікації → нове повідомлення
+  const shouldSendNew = !last.message_id || last.publishedAt !== today
 
-  const method = shouldSendNew
-    ? "sendMessage"
-    : "editMessageText"
+  const method = shouldSendNew ? "sendMessage" : "editMessageText"
 
   const response = await fetch(
     `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/${method}`,
@@ -182,11 +176,13 @@ async function run() {
   const last = loadLastMessage() || {}
   const wasOutage = last.isOutage ?? false
 
+  // 🔴 нове відключення або оновлення існуючого
   if (isOutage) {
     await sendNotification(generateOutageMessage(info), true)
     return
   }
 
+  // 🟢 підтверджене відновлення
   if (wasOutage && !isOutage) {
     const delay = getRandomDelay()
     await sleep(delay)
